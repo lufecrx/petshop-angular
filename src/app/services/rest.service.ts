@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { AngularFireAuth } from '@angular/fire/compat/auth';
 import {
   AngularFireDatabase,
   AngularFireList,
@@ -10,51 +11,84 @@ import { map } from 'rxjs/operators';
   providedIn: 'root',
 })
 export class RestService {
-  private basePath = '/tratamentos'; // Caminho para a coleção de dados no Firebase
-  itemsRef: AngularFireList<any>; // Referência para a lista de itens
+  private basePath = '/petshop'; // Caminho para a coleção de dados no Firebase
+  private itemsRef: AngularFireList<any> | undefined; // Referência para a lista de itens
 
-  constructor(private db: AngularFireDatabase) {
-    this.itemsRef = db.list(this.basePath);
+  constructor(
+    private db: AngularFireDatabase,
+    private afAuth: AngularFireAuth,
+  ) {
+    this.afAuth.authState.subscribe(user => {
+      if (user) {
+        // O usuário está autenticado
+        this.itemsRef = db.list(`${this.basePath}/${user.uid}`);
+      } else {
+        // O usuário não está autenticado
+      }
+    });
   }
 
   // Retorna todos os itens
   getItems(): Observable<any[]> {
-    return this.itemsRef
-      .snapshotChanges()
-      .pipe(
-        map((changes) =>
-          changes.map((c) => ({ key: c.payload.key, ...c.payload.val() }))
-        )
-      );
+    if (this.itemsRef) {
+      return this.itemsRef
+        .snapshotChanges()
+        .pipe(
+          map(changes =>
+            changes.map(c => ({ key: c.payload.key, ...c.payload.val() }))
+          )
+        );
+    } else {
+      // Retorna um observable vazio
+      return new Observable<any[]>();
+    }
   }
 
   // Retorna um item específico pelo seu ID
   getItem(key: string): Observable<any> {
-    return this.db.object(`${this.basePath}/${key}`).valueChanges();
+    return this.afAuth.authState.pipe(
+      map(user => {
+        if (user) {
+          return this.db.object(`${this.basePath}/${user.uid}/${key}`).valueChanges();
+        } else {
+          // Retorna um observable vazio
+          return new Observable<any>();
+        }
+      })
+    );
   }
 
   // Adiciona um novo item
   addItem(item: any): void {
-    this.itemsRef.push(item);
+    if (this.itemsRef) {
+      this.itemsRef.push(item);
+    }
   }
 
   // Atualiza um item existente
   updateItem(key: string, value: any): void {
-    this.itemsRef.update(key, value);
+    if (this.itemsRef) {
+      this.itemsRef.update(key, value);
+    }
   }
 
   // Retorna todos os itens
   searchItems(searchTerm: string): Observable<any[]> {
-    return this.itemsRef
-      .snapshotChanges()
-      .pipe(
-        map(changes =>
-          changes.map(c => ({ key: c.payload.key, ...c.payload.val() }))
-        ),
-        map(items =>
-          items.filter(item => this.matchKeyword(item, searchTerm))
-        )
-      );
+    if (this.itemsRef) {
+      return this.itemsRef
+        .snapshotChanges()
+        .pipe(
+          map(changes =>
+            changes.map(c => ({ key: c.payload.key, ...c.payload.val() }))
+          ),
+          map(items =>
+            items.filter(item => this.matchKeyword(item, searchTerm))
+          )
+        );
+    } else {
+      // Retorna um observable vazio
+      return new Observable<any[]>();
+    }
   }
 
   // Verifica se o item contém a palavra-chave
@@ -66,7 +100,10 @@ export class RestService {
     for (const key in item) {
       if (Object.prototype.hasOwnProperty.call(item, key)) {
         const value = item[key];
-        if (typeof value === 'string' && value.toLowerCase().includes(keyword.toLowerCase())) {
+        if (
+          typeof value === 'string' &&
+          value.toLowerCase().includes(keyword.toLowerCase())
+        ) {
           return true; // Retorna verdadeiro se a palavra-chave for encontrada
         }
       }
@@ -74,14 +111,10 @@ export class RestService {
     return false; // Retorna falso se a palavra-chave não for encontrada em nenhum lugar no item
   }
 
-
   // Deleta um item
   deleteItem(key: string): void {
-    this.itemsRef.remove(key);
-  }
-
-  // Deleta todos os itens
-  deleteAll(): void {
-    this.itemsRef.remove();
+    if (this.itemsRef) {
+      this.itemsRef.remove(key);
+    }
   }
 }
